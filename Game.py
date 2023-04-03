@@ -20,6 +20,7 @@ class Game:
         self.playercount = playercount
         self.board = Board()
         self.init_word_list()
+        self.pass_counter = 0
 
     def init_word_list(self):
         """
@@ -27,10 +28,9 @@ class Game:
         """
         with open(self.DICTIONARYFILE,"r",encoding="UTF-8") as f:
             lines = f.readlines()
-            for i,line in enumerate(lines):
+            for line in lines:
                 word = line.strip().split("\t")[0].strip()
                 self.WORD_LIST.append(word)
-        # print(len(self.WORD_LIST))
 
     def next_turn(self):
         """
@@ -49,6 +49,9 @@ class Game:
             self.players.append(player)
 
     def get_current_player(self):
+        """
+        Returns the player object of the current player
+        """
         return self.players[self.current_player]
 
     def start_game(self):
@@ -79,63 +82,77 @@ class Game:
         match choice:
             case 1: # Place Word
                 self.place_word(player)
+                self.pass_counter = 0
 
             case 2: # Swap Letters
                 self.swap_letters(player)
+                self.pass_counter = 0
 
             case 3: # Pass Turn
-                pass
-
-    def get_word_score(self,word):
-        """
-        Returns sum of all individual letter scores of words
-        """
-        return sum([self.points_map[letter] for letter in word])
+                self.pass_counter += 1
+        player.hand = player.hand + self.draw(7-len(player.hand)) # Draws up to 7 letter
 
     def place_word(self,player):
         """
         Allows player to place a word formed from his letters
         """
-        print(f"Your Letters: {' |'.join(player.hand)}")
+        print(f"Your Letters: {' '.join(player.hand)}")
+        while True:
+            # Gets and validates all player input
+            while True:
+                flag = True
+                word = input("Enter word you want to place: ")
+                if len(word) == 0:
+                    print("Invalid Input, try again")
+                    flag = False
+                if flag:
+                    break
+            
+            while True:
+                rowPos,colPos = map(int,input("Enter position for start of word (row,col): ").split(","))
+                if rowPos == None or colPos == None:
+                    print("Invalid Input, try again")
+                    continue
+                break
+            
+            while True:
+                direction = input("Enter direction for word to go (R (Right),D (Down)): ")
+                if direction.upper() not in ["R","D"]:
+                    print("Invalid Input, try again")
+                    continue
+                break 
 
-        # Gets and validates all player input
-        while True:
-            word = input("Enter word you want to place: ")
-            # TODO: Verify that all letters are in player's hand
-            if len(word) == 0:
-                print("Invalid Input, try again")
+            # Attempts to add word to a copy of the board to verify placement
+            copy_board = Board()
+            copy_board.board = deepcopy(self.board.board)
+            copy_board.empty = self.board.empty
+            response = copy_board.add_word(rowPos-1,colPos-1,direction,word,self.points_map,deepcopy(player.hand))
+            if response == "Not Center":
+                print("First word placed needs to pass over center tile")
                 continue
+            elif response == False and all([self.validate_word(word) for word in copy_board.get_all_words_on_board()]):
+                print("Invalid placement, turn forfeitted")
+                sleep(2) # Sleeps to give time for prompt to be visible
+                break
+            else:
+                letters_used,word_score = self.board.add_word(rowPos-1,colPos-1,direction,word,self.points_map,deepcopy(player.hand))
+                if len(word) == 7:
+                    word_score += 50 # 7 Letter Bonus
+                player.score += word_score
+                self.board.empty = False
+                for letter in letters_used:
+                    try:
+                        player.hand.remove(letter.upper())
+                    except ValueError:
+                        player.hand.remove("*")
+                print(f"The word { word.upper() } was successfully added to the board giving {word_score} points. New Score: {player.score}")
+            del copy_board
             break
-        
-        while True:
-            rowPos,colPos = map(int,input("Enter position for start of word (row,col): ").split(","))
-            print(f"Row Pos: {rowPos} Row Pos: {colPos}")
-            if rowPos == None or colPos == None:
-                print("Invalid Input, try again")
-                continue
-            break
-        
-        while True:
-            direction = input("Enter direction for word to go (L,R,U,D): ")
-            if direction.upper() not in ["L","R","U","D"]:
-                print("Invalid Input, try again")
-                continue
-            break 
-
-        # Attempts to add word to a copy of the board to verify placement
-        copy_board = Board()
-        copy_board.board = deepcopy(self.board.board)
-        if copy_board.add_word(rowPos-1,colPos-1,direction,word,self.points_map) != False and all([self.validate_word(word) or self.validate_word(word[::-1]) for word in copy_board.get_all_words_on_board()]):
-            word_score = self.board.add_word(rowPos-1,colPos-1,direction,word,self.points_map)
-            player.score += word_score
-            self.board.empty = False
-            print(f"The word { word.upper() } was successfully added to the board. New Score: {player.score}")
-        else:
-            print("Invalid placement, turn forfeitted")
-            sleep(2) # Sleeps to give time for 
-        del copy_board
 
     def swap_letters(self,player):
+        """
+        Allows player to swap letters from his hand with new ones from the bag
+        """
         while True:
             try:
                 amount = int(input("Enter amount of letters to swap: "))
@@ -148,14 +165,14 @@ class Game:
         for n in range(amount):
             print("Your hand: "+ "".join(new_hand))
             while True:
-                picked_letter = input(f"Choose letter to swap, {amount-n-1} choices left: ")   
+                picked_letter = input(f"Choose letter to swap, {amount-n} choices left: ")   
                 try:
                     new_hand.remove(picked_letter) 
                     break
                 except ValueError:
                     print("Please input a valid letter from your hand: ")
         player.hand = new_hand + self.draw(amount)
-
+        print("New Hand:"," ".join(player.hand))
     def draw(self,amount):
         """
         Draws x amount of letters from the bag and returns them in a list
@@ -167,14 +184,20 @@ class Game:
         return pile
 
     def validate_word(self,word):
+        """
+        Returns True if word is in the word dictionary
+        """
         return word.upper() in self.WORD_LIST
 
     def check_game_over(self):
-        return len(self.bag) == 0 and any([len(player.hand) == 0 for player in self.players])
+        """
+        Returns true if bag is empty and one of the players has an empty hand, which signals it is game over
+        """
+        return len(self.bag) == 0 and any([len(player.hand) == 0 for player in self.players]) or self.pass_counter >= self.playercount*2
 
     def __main(self):
         """
-        Main loop
+        Main game loop
         """
         while self.started:
             cur_player = self.get_current_player()
@@ -183,6 +206,9 @@ class Game:
             self.start_turn()
             if self.check_game_over():
                 self.started = False
+                print("Game Over! \nFinal Scores:")
+                for player in self.players:
+                    print(f"Player {player.name} with score {player.score}")
                 break
             self.next_turn()
 

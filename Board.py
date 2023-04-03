@@ -12,7 +12,7 @@ class Powerup(Enum):
     CENTER = 5
 
 class Board:
-    LINE_POWERUPS_LOCATIONS = [
+    LINE_POWERUPS_LOCATIONS = [ # The powerup locations for each line
         {0: Powerup.TRIPLEWORD,3: Powerup.DOUBLELETTER,7:Powerup.TRIPLEWORD,11:Powerup.DOUBLELETTER,14:Powerup.TRIPLELETTER},
         {1: Powerup.DOUBLEWORD,13:Powerup.DOUBLEWORD},
         {2: Powerup.DOUBLEWORD,12:Powerup.DOUBLEWORD},
@@ -32,7 +32,7 @@ class Board:
         {0: Powerup.TRIPLEWORD,3:Powerup.DOUBLELETTER,7: Powerup.TRIPLEWORD,11: Powerup.DOUBLELETTER,14:Powerup.TRIPLEWORD}
 
     ]
-    POWERUPS_RENDER = {
+    POWERUPS_RENDER = { # The format for rendering powerups on to the screen
         Powerup.DOUBLELETTER: "*2",
         Powerup.TRIPLELETTER: "*3",
         Powerup.DOUBLEWORD: "$2",
@@ -46,6 +46,12 @@ class Board:
         self.empty = True
 
     def print_board(self):
+        """
+        Prints the board
+        Shows '-' if tile is empty
+        Displays the letter if square is not empty
+        If the square is empty but has a powerup, that powerup is shown according to POWERUPS_RENDER
+        """
         print("\n"+f"{'':<5s}",end="") # Padding for header
         for x in range(1,self.width+1): # Prints header
             print(f"{str(x):^2s}",end=" ")
@@ -71,6 +77,10 @@ class Board:
         return board
 
     def get_all_words_on_board(self):
+        """
+        Goes through the board by row and by column
+        And returns all words found
+        """
         words = []
         # Check all rows
         for row in self.board:
@@ -100,27 +110,40 @@ class Board:
                     word += square.letter
         return words
 
-    def add_word(self,startRow,startCol,direction,word,points_map):
+    def add_word(self,startRow,startCol,direction,word,points_map,playerHand):
         """
         Adds word to board letter by letter
         Returns false if placement would override another word
+        Returns "Not Center" if no word has been placed and word does not go through center
         """
         match direction.upper(): # Get direction to step in list
-            case "L":
-                step = (0,-1)
             case "R":
                 step = (0,1)
-            case "U":
-                step = (-1,0)
             case "D":
                 step = (1,0)
             case _:
                 raise ValueError
         word_multipliers = []
         score = 0
+        hits_center = False # Will be true if word passes over center of board
+        intersects_word = False # Will be True if word goes through another word on board
+        letters_used = list(word) 
+        posRow,posCol = startRow,startCol
         for letter in word:
                 try:
-                    multiplier = self.add_letter(startRow,startCol,letter)
+                    if self.board[posRow][posCol].letter != None:
+                        intersects_word = True
+                    else:
+                        try:
+                            playerHand.remove(letter.upper())
+                        except ValueError:
+                            if "*" in playerHand:
+                                playerHand.remove("*")
+                            else:
+                                raise InvalidPlacement
+                    multiplier = self.add_letter(posRow,posCol,letter)
+                    if posRow == 7 and posCol == 7:
+                        hits_center = True
                     letter_points = points_map[letter.upper()]
                     if multiplier == Powerup.DOUBLELETTER:
                         letter_points *= 2
@@ -129,16 +152,21 @@ class Board:
                     else:
                         word_multipliers.append(multiplier)
                     score += letter_points
-                    startRow += step[0]
-                    startCol += step[1]
+                    posRow += step[0]
+                    posCol += step[1]
                 except InvalidPlacement:
                     return False
+        if self.empty and not hits_center:
+            return "Not Center"
+        if not intersects_word and not self.empty:
+            return False
+
         for mult in word_multipliers:
             if mult == Powerup.DOUBLEWORD:
                 score *= 2
             elif mult == Powerup.TRIPLEWORD:
                 score *= 3
-        return score
+        return letters_used, score
 
     def add_letter(self,rowPos,colPos,letter):
         """
@@ -147,32 +175,10 @@ class Board:
         """
         target_pos = self.board[rowPos][colPos]
         # print("Placing Letter",letter,"At",target_pos.letter)
-        if target_pos.letter != None and target_pos.letter != letter:
+        if target_pos.letter != None and target_pos.letter != letter.upper():
             raise InvalidPlacement
         if rowPos < 0 or rowPos >= self.height or colPos < 0 or colPos >= self.width:
             raise InvalidPlacement
         self.board[rowPos][colPos].letter = letter.upper() 
         return self.board[rowPos][colPos].powerup
         
-
-
-
-if __name__ == "__main__":
-    b = Board()
-    b.print_board()
-    rowPos,colPos = 1,1
-    words = ["Boot","Run","Lice"]
-    positions = [
-        ((5,5),"L"),
-        ((1,1),"D"),
-        ((8,4),"U")
-    ]
-
-    for ind,word in enumerate(words):
-        pos = positions[ind]
-        rowPos,colPos = pos[0]
-        direction = pos[1]
-        print(b.add_word(rowPos-1,colPos-1,direction,word))
-        b.print_board()
-    print("ALL WORDS:")
-    all_words = b.get_all_words_on_board()
